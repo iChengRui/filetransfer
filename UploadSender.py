@@ -16,6 +16,7 @@ import pathlib
 import socket
 import argparse
 import sys
+import hashlib
 
 
 def sender(ip: str, port: int, source: object = str,
@@ -40,7 +41,6 @@ def sender(ip: str, port: int, source: object = str,
     num_slice = math.ceil(file_size / max_size_slice)
     buf = [file_name, str(num_slice), '\n']
     buf = ",".join(buf).encode()
-
     slc = list(range(0, file_size, max_size_slice))
     slc.append(file_size)
     remained = slc = list(enumerate(zip(slc[:-1], slc[1:])))
@@ -53,6 +53,7 @@ def sender(ip: str, port: int, source: object = str,
     file_num = os.open(source, os.O_RDONLY)
     buf = mmap.mmap(file_num, file_size, mmap.MAP_SHARED,
                     mmap.PROT_READ)
+
     with furures.ThreadPoolExecutor(max_workers=max_thread) as thdpl:
         while True:
             for order, (start, end) in remained:
@@ -79,7 +80,9 @@ def send(ip, port, buf, order):
     """
     sct = socket.socket()
     sct.connect((ip, port))
-    buffer = str(order) + "," + str(len(buf)) + "\n"
+    md5_ = hashlib.md5()
+    md5_.update(buf)
+    buffer = str(order) + "," + str(len(buf)) + "," + md5_.hexdigest() + "\n"
     while True:
         sct.send(buffer.encode())
         if sct.recv(4096) == b"\n":
@@ -119,7 +122,7 @@ def get_option(parmlist):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 11:
         print("Enter some information,which is split by space")
         param = input("IP PORT FILEPATH SLICESIZE THREAD:")
         ip, port, filepath, slicesize, threadnum = param.split()
@@ -128,7 +131,7 @@ if __name__ == "__main__":
         ip = param.IP
         port = param.PORT
         filepath = param.FILEPATH
-        slicesize=param.SLICESIZE
-        threadnum=param.THREAD
+        slicesize = param.SLICESIZE
+        threadnum = param.THREAD
 
-    sender(ip, int(port), filepath, int(slicesize), int(threadnum))
+    sender(ip, int(port), filepath, int(threadnum), int(slicesize))

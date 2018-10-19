@@ -14,7 +14,9 @@ import socket
 import sys
 import tempfile
 import threading
-
+import hashlib
+import  time
+import shutil
 lck = threading.Lock()
 evnt = threading.Event()
 file_received = set()
@@ -47,12 +49,13 @@ def receiver(ip, port, target_loc=None):
                 buf.append(bys)
             file_name, total, _ = b"".join(buf).decode("utf8").split(sep=',')
             total_thd = total = int(total)
-            temp_dir = pathlib.Path(tempfile.mkdtemp(),
-                                    file_name)
+            temp_dir = pathlib.Path(tempfile.mkdtemp(), file_name)
             os.mkdir(str(temp_dir))
             file_need = set(str(x) for x in range(0, total))
             initialed = True
             ctrl_conn.send(b"\n")
+            # print(file_need,total_thd)
+            # sys.exit(0)
         else:
             thd = threading.Thread(group=None, target=receive,
                                    args=(conn, temp_dir))
@@ -65,9 +68,9 @@ def receiver(ip, port, target_loc=None):
                         break
                     evnt.wait()
                     file_remain = file_need - file_received - file_receiving
-                    print(total_thd, ":", file_received, ",", file_receiving,
-                          ",",
-                          file_remain)
+                    # print(total_thd, ":", file_received, ",", file_receiving,
+                    #      ",", file_remain)
+                    # time.sleep(180)
                 if file_remain:
                     total_thd = len(file_remain)
                     file_remain = ",".join(file_remain)
@@ -88,7 +91,7 @@ def receiver(ip, port, target_loc=None):
         for i in range(0, total):
             with open(pathlib.Path(temp_dir, str(i)), 'rb') as j:
                 f.write(j.read())
-    os.removedirs(str(temp_dir))
+        shutil.rmtree(str(temp_dir))
 
 
 def receive(conn, tmp_dir=None):
@@ -107,28 +110,36 @@ def receive(conn, tmp_dir=None):
         order.append(bys)
         if bys.find(b"\n") != -1:
             break
-    order, file_size = b"".join(order).decode("utf8").split(",")
+    order, file_size,digest = b"".join(order).decode("utf8").strip().split(",")
     file_size = int(file_size)
     file_path = pathlib.PurePath(tmp_dir, order)
-    print(file_path, file_size)
+    md5 = hashlib.md5()
     with open(file_path, 'wb') as f:
         with lck:
             file_receiving.add(order)
-            evnt.set()
+            evnt.clear()
         conn.send(b"\n")
         while True:
             bys = conn.recv(4096)
-            f.write(bys)
             if not bys:
                 break
-    if os.path.getsize(file_path) != file_size:
+            f.write(bys)
+            md5.update(bys)
+
+
+    if os.path.getsize(file_path) != file_size or md5.hexdigest()!= digest:
+        print("origin:" ,len(digest),"get:",len(md5.hexdigest()))
+        print("origin:",file_size,"get:",os.path.getsize(file_path))
+        print("origin:",digest,"get:",md5.hexdigest())
         os.remove(str(file_path))
         with lck:
             file_receiving.remove(order)
+            evnt.set()
     else:
         with lck:
             file_receiving.remove(order)
             file_received.add(order)
+            evnt.set()
     conn.close()
 
 
@@ -153,7 +164,7 @@ def get_option(parmlist):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 7:
         print("Enter some information,which is split by space")
         param = input("IP PORT FILEPATH:")
         ip, port, filepath = param.split()
